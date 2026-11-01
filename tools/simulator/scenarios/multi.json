@@ -1,0 +1,20 @@
+{
+  "_comment": "SPDX-License-Identifier: GPL-3.0-or-later; Copyright (C) 2026 Michele Brami. Synthetic scenario, no real data.",
+  "name": "multi",
+  "seed": 3,
+  "start_utc": "2026-03-29T03:00:00Z",
+  "timezone": "Europe/Rome",
+  "accounts": [
+    {"email": "follower1@example.invalid", "password": "sim-password", "unit": "mg/dL", "country": "IT", "subjects": ["a", "b"]},
+    {"email": "follower2@example.invalid", "password": "sim-password", "unit": "mg/dL", "country": "US",
+     "timezone": "America/New_York", "subjects": ["b", "c"]}
+  ],
+  "subjects": [
+    {"key": "a", "last_name": "Subject A", "sensor": {"age_days": 7.9}},
+    {"key": "b", "last_name": "Subject B", "sensor": {"age_days": 3.2},
+     "profile": {"baseline": 125, "daily_amp": 12, "noise": 4.5,
+                 "meals": [{"hour": 8.0, "rise": 70}, {"hour": 12.5, "rise": 85}, {"hour": 20.0, "rise": 75}]}},
+    {"key": "c", "last_name": "Subject C", "sensor": {"age_days": 10.5},
+     "profile": {"baseline": 95, "noise": 2.0, "night_dip": {"hour": 4.0, "depth": 35, "width_h": 2.0}}}
+  ]
+}

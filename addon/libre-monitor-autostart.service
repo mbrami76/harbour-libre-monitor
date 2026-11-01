@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Michele Brami
+#
+# Optional add-on of Libre Monitor (REQ-PKG-03): one D-Bus ping to the application's name. The ping
+# starts the monitoring service by D-Bus activation when it is not running and does nothing to a
+# running one (org.freedesktop.DBus.Peer.Ping is answered by the D-Bus library, not by the service's
+# code). It is started by libre-monitor-autostart.timer.
+[Unit]
+Description=Libre Monitor: start the monitoring service if it is not running
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/dbus-send --session --type=method_call --dest=it.michelebrami.libre-monitor /it/michelebrami/libre_monitor org.freedesktop.DBus.Peer.Ping

@@ -1,0 +1,12 @@
+*.pro.user*
+build-*/
+RPMS/
+SRPMS/
+*.qm
+*.o
+moc_*
+qrc_*
+Makefile*
+.qmake.stash
+captures/
+__pycache__/

@@ -1,0 +1,24 @@
+{
+  "_comment": "SPDX-License-Identifier: GPL-3.0-or-later; Copyright (C) 2026 Michele Brami. Synthetic scenario, no real data.",
+  "name": "bands",
+  "seed": 2,
+  "start_utc": "2026-07-15T08:00:00Z",
+  "timezone": "Europe/Rome",
+  "bands": {"ll": 54, "l": 70, "h": 180, "hh": 250},
+  "accounts": [
+    {"email": "follower@example.invalid", "password": "sim-password", "unit": "mg/dL", "country": "IT", "subjects": ["a"]}
+  ],
+  "subjects": [
+    {"key": "a", "first_name": "Sim", "last_name": "Subject Bands", "sensor": {"age_days": 5},
+     "profile": {"noise": 2.0, "excursions": [
+       {"daily_local": "01:00", "duration_min": 90, "peak": 45},
+       {"daily_local": "05:00", "duration_min": 90, "peak": 62},
+       {"daily_local": "09:00", "duration_min": 120, "peak": 200},
+       {"daily_local": "11:30", "duration_min": 120, "peak": 275},
+       {"daily_local": "15:00", "duration_min": 90, "peak": 62},
+       {"daily_local": "18:00", "duration_min": 90, "peak": 45},
+       {"daily_local": "21:00", "duration_min": 120, "peak": 270},
+       {"daily_local": "23:30", "duration_min": 100, "peak": 200}
+     ]}}
+  ]
+}

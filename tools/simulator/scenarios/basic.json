@@ -1,0 +1,13 @@
+{
+  "_comment": "SPDX-License-Identifier: GPL-3.0-or-later; Copyright (C) 2026 Michele Brami. Synthetic scenario, no real data.",
+  "name": "basic",
+  "seed": 1,
+  "start_utc": "2026-07-15T08:00:00Z",
+  "timezone": "Europe/Rome",
+  "accounts": [
+    {"email": "follower@example.invalid", "password": "sim-password", "unit": "mg/dL", "country": "IT", "subjects": ["a"]}
+  ],
+  "subjects": [
+    {"key": "a", "first_name": "Sim", "last_name": "Subject A", "sensor": {"age_days": 7.9}}
+  ]
+}

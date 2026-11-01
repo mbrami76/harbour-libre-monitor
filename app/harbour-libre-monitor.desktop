@@ -1,0 +1,22 @@
+[Desktop Entry]
+Type=Application
+X-Nemo-Application-Type=silica-qt5
+Icon=harbour-libre-monitor
+Exec=harbour-libre-monitor
+# A tap on the icon must start a user-interface process of its own while the headless service
+# runs; the guard in UI mode (daemon/uiguard.h) prevents a second UI.
+X-Nemo-Single-Instance=no
+Name=Libre Monitor
+Name[it]=Libre Monitor
+
+[X-Sailjail]
+# Replace with your organization as a reverse domain name
+OrganizationName=it.michelebrami
+# ApplicationName does not have to be identical to Name
+ApplicationName=libre-monitor
+# Internet: the source; Secrets: the stored login. Documents: only the diagnostic report file, which
+# the window writes to the phone's Documents folder if the user agrees (nothing else uses the folder).
+Permissions=Internet;Secrets;Documents
+# D-Bus activation of the headless monitoring service: the same binary in service mode
+#.
+ExecDBus=harbour-libre-monitor --service

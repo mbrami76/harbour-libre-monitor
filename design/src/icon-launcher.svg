@@ -1,0 +1,16 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later --><!-- Copyright (C) 2026 Michele Brami --><svg xmlns="http://www.w3.org/2000/svg" width="86" height="86" viewBox="0 0 86 86"><defs>
+<radialGradient id="rg" cx="0.30" cy="0.28" r="0.95"><stop offset="0" stop-color="#FF6A5C"/><stop offset="0.55" stop-color="#E02E36"/><stop offset="1" stop-color="#A3101B"/></radialGradient>
+<linearGradient id="gl" x1="0.1" y1="0.05" x2="0.7" y2="0.75"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.42"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></linearGradient>
+<linearGradient id="yg" x1="0.2" y1="0" x2="0.8" y2="1"><stop offset="0" stop-color="#FFE97A"/><stop offset="1" stop-color="#F2B100"/></linearGradient>
+<linearGradient id="y" x1="0" y1="-1" x2="0" y2="1"><stop offset="0" stop-color="#FFE066"/><stop offset="1" stop-color="#F5B800"/></linearGradient>
+<linearGradient id="pg" x1="0.2" y1="0" x2="0.8" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#E3E7EC"/></linearGradient>
+<radialGradient id="sg" cx="0.35" cy="0.3" r="0.9"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#D5DAE1"/></radialGradient></defs>
+<path d="M2.2,0.3H43C66.6,0.3 85.7,19.4 85.7,43C85.7,66.6 66.6,85.7 43,85.7C19.4,85.7 0.3,66.6 0.3,43V2.2C0.3,1.2 1.2,0.3 2.2,0.3Z" fill="url(#rg)"/>
+<path d="M4,4H42C57,4 70,10 77,21C62,12 40,13 24,28C13,39 8,54 8.5,68C5,58 3.5,48 4,34Z" fill="url(#gl)"/>
+<ellipse cx="62" cy="19" rx="5" ry="2.2" transform="rotate(35 62 19)" fill="#FFFFFF" fill-opacity="0.55"/>
+
+<circle cx="53.5" cy="53.5" r="22.5" fill="#A8101B" fill-opacity="0.35" transform="translate(0.8,1.2)"/>
+<circle cx="53.5" cy="53.5" r="22.5" fill="url(#yg)"/>
+<circle cx="53.5" cy="53.5" r="17.5" fill="url(#pg)"/>
+<circle cx="53.5" cy="53.5" r="10.5" fill="url(#sg)" stroke="#BFC6CF" stroke-width="0.8"/>
+<circle cx="53.5" cy="53.5" r="2.6" fill="#C3CAD3"/></svg>

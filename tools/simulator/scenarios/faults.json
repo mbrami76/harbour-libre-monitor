@@ -1,0 +1,35 @@
+{
+  "_comment": "SPDX-License-Identifier: GPL-3.0-or-later; Copyright (C) 2026 Michele Brami. Synthetic scenario, no real data.",
+  "name": "faults",
+  "seed": 5,
+  "start_utc": "2026-07-15T08:00:00Z",
+  "timezone": "Europe/Rome",
+  "accounts": [
+    {"email": "ok@example.invalid",        "password": "sim-password", "subjects": ["f"]},
+    {"email": "terms@example.invalid",     "password": "sim-password", "subjects": ["f"]},
+    {"email": "redirect@example.invalid",  "password": "sim-password", "subjects": ["f"]},
+    {"email": "expired@example.invalid",   "password": "sim-password", "subjects": ["f"]},
+    {"email": "limited@example.invalid",   "password": "sim-password", "subjects": ["f"]},
+    {"email": "server@example.invalid",    "password": "sim-password", "subjects": ["f"]},
+    {"email": "slow@example.invalid",      "password": "sim-password", "subjects": ["f"]},
+    {"email": "dropped@example.invalid",   "password": "sim-password", "subjects": ["f"]},
+    {"email": "broken@example.invalid",    "password": "sim-password", "subjects": ["f"]}
+  ],
+  "subjects": [
+    {"key": "f", "last_name": "Subject Faults", "sensor": {"age_days": 7.9}}
+  ],
+  "faults": [
+    {"kind": "terms", "account": "terms@example.invalid"},
+    {"kind": "redirect", "account": "redirect@example.invalid", "region": "de", "count": 1},
+    {"kind": "auth_invalid", "account": "expired@example.invalid", "endpoint": "connections", "count": 1},
+    {"kind": "auth_missing", "account": "expired@example.invalid", "endpoint": "graph", "count": 1},
+    {"kind": "rate_limit", "account": "limited@example.invalid", "endpoint": "connections", "skip": 1, "count": 2, "retry_after_s": 30},
+    {"kind": "http_error", "account": "server@example.invalid", "endpoint": "graph", "status": 503, "count": 2},
+    {"kind": "http_error", "account": "server@example.invalid", "endpoint": "logbook", "status": 403, "count": 1},
+    {"kind": "error_in_200", "account": "server@example.invalid", "endpoint": "connections", "status": 4, "message": "could not load patient", "count": 1},
+    {"kind": "slow", "account": "slow@example.invalid", "endpoint": "graph", "delay_s": 8, "count": 1},
+    {"kind": "drop", "account": "dropped@example.invalid", "endpoint": "logbook", "count": 1},
+    {"kind": "invalid_json", "account": "broken@example.invalid", "endpoint": "graph", "count": 1},
+    {"kind": "missing_keys", "account": "broken@example.invalid", "endpoint": "connections", "paths": ["data.glucoseMeasurement"], "skip": 1, "count": 1}
+  ]
+}

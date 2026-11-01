@@ -1,0 +1,26 @@
+{
+  "_comment": "SPDX-License-Identifier: GPL-3.0-or-later; Copyright (C) 2026 Michele Brami. Synthetic scenario, no real data.",
+  "name": "gaps",
+  "seed": 6,
+  "start_utc": "2026-07-15T08:00:00Z",
+  "timezone": "Europe/Rome",
+  "accounts": [
+    {"email": "follower@example.invalid", "password": "sim-password", "subjects": ["gap", "dup", "late", "unordered", "warmup", "expiring", "nosensor"]}
+  ],
+  "subjects": [
+    {"key": "gap", "last_name": "Signal gap", "sensor": {"age_days": 5}},
+    {"key": "dup", "last_name": "Duplicates", "sensor": {"age_days": 5}},
+    {"key": "late", "last_name": "Delayed graph", "sensor": {"age_days": 5}},
+    {"key": "unordered", "last_name": "Out of order", "sensor": {"age_days": 5}},
+    {"key": "warmup", "last_name": "Warm-up", "sensor": {"activated_utc": "2026-07-15T07:40:00Z", "warmup_min": 60}},
+    {"key": "expiring", "last_name": "Expiring", "sensor": {"age_days": 13.9, "life_days": 14}},
+    {"key": "nosensor", "last_name": "No sensor", "sensor": null}
+  ],
+  "faults": [
+    {"kind": "gap", "subject": "gap", "start_utc": "2026-07-15T03:00:00Z", "end_utc": "2026-07-15T04:10:00Z"},
+    {"kind": "gap", "subject": "gap", "start_utc": "2026-07-15T07:30:00Z", "end_utc": "2026-07-15T08:30:00Z"},
+    {"kind": "duplicates", "subject": "dup", "every": 10},
+    {"kind": "graph_lag", "subject": "late", "minutes": 45},
+    {"kind": "unordered", "subject": "unordered"}
+  ]
+}

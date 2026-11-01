@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Michele Brami
+#
+# Optional add-on of Libre Monitor (REQ-PKG-03, REQ-PKG-04): pings the monitoring service 20 s after
+# the user session starts (after the first PIN) and then every 60 s, so that a stopped or crashed
+# service is started again within one period while the phone is awake (about 4 min when it sleeps,
+#). Enabled by the symlink in user-session.target.wants/ that the package ships; the
+# application finds out that the add-on is installed from the presence of this file (REQ-PKG-06):
+#   /usr/lib/systemd/user/libre-monitor-autostart.timer
+[Unit]
+Description=Libre Monitor: periodic start of the monitoring service
+
+[Timer]
+OnStartupSec=20s
+OnUnitActiveSec=60s
+AccuracySec=1s
+
+[Install]
+WantedBy=user-session.target

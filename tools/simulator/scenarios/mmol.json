@@ -1,0 +1,13 @@
+{
+  "_comment": "SPDX-License-Identifier: GPL-3.0-or-later; Copyright (C) 2026 Michele Brami. Synthetic scenario, no real data.",
+  "name": "mmol",
+  "seed": 4,
+  "start_utc": "2026-07-15T08:00:00Z",
+  "timezone": "Europe/London",
+  "accounts": [
+    {"email": "follower@example.invalid", "password": "sim-password", "unit": "mmol/L", "country": "GB", "subjects": ["a"]}
+  ],
+  "subjects": [
+    {"key": "a", "last_name": "Subject Mmol", "sensor": {"age_days": 6}}
+  ]
+}
