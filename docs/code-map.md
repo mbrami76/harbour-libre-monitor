@@ -488,7 +488,7 @@ The sources and the exported images. The exports are binary or generated, so the
 ### `rpm/`
 
 - `harbour-libre-monitor.spec`: the package description of the application.
-- `harbour-libre-monitor.changes.in`, `harbour-libre-monitor.changes.run.in`: templates of the change log of a package.
+- `harbour-libre-monitor.changes`: the change log of the package, newest entry first; the build tool adds it to the package as its changelog.
 
 ### `addon/`
 

@@ -95,22 +95,22 @@ stateDiagram-v2
 
 *The circuit breaker. A process failure is a crash, a non-zero exit, a kill, or a start that did not complete. While the circuit is open the connection waits in `backoff`; it is never stopped for the user by the breaker. A separate allowance limits how often a process may be started.*
 
-**Scheduler.** For each connection and each person it holds a small state machine (`idle`, `fetching`, `backoff`, `needs-attention`, `disabled-by-guard`). The next fetch of the current value is computed from the sensor timestamp of the last reading plus the nominal interval, not from a fixed timer (REQ-SCH-02). Errors are handled by class: transient errors back off with jitter; a token that the source rejects is answered by one new login and one repeat of the command, while a login that the source refuses stops the connection at once for the user to fix and is never retried by itself; a rate limit stops that connection for a long time and raises the polling floor; a protocol change stops it and raises a warning (REQ-SCH-04). A staleness clock per person records when the newest stored current reading was measured and why newer data are missing (REQ-SCH-06, REQ-SCH-07).
+**Scheduler.** For each connection and each person it holds a small state machine (`idle`, `fetching`, `backoff`, `needs-attention`, `disabled-by-guard`). The next fetch of the current value is computed from the sensor timestamp of the last reading plus the nominal interval, not from a fixed timer (REQ-SCH-02). Errors are handled by class: transient errors back off with jitter; a token that the source rejects is answered by one new login and one repeat of the command, while a login that the source refuses stops the connection at once for the user to fix and is never retried by itself; a rate limit stops that connection for a long time and raises the polling floor; a reply that the adapter cannot understand is first treated like a transient error, and only a run of such polls in a row (three by default) stops the connection and raises a warning (REQ-SCH-04). A connection stopped for that reason is tried again by itself with one fetch every hour, the first reply that is understood ends the stop, and the Retry button of the person's page and tile ends it at once. The journal entry of the stop carries the adapter's own reason as a fixed text (a status number or a short phrase, never a value or a name). A staleness clock per person records when the newest stored current reading was measured and why newer data are missing (REQ-SCH-06, REQ-SCH-07).
 
 ```mermaid
 flowchart LR
     START(["The service starts"]) --> IDLE["idle"]
     IDLE -->|"a feed is due"| FETCH["fetching"]
     FETCH -->|"the command ended well"| IDLE
-    FETCH -->|"transient error, rate limit, open circuit"| BACKOFF["backoff"]
+    FETCH -->|"transient error, rate limit, open circuit, a reply not understood (up to twice in a row)"| BACKOFF["backoff"]
     BACKOFF -->|"retry time reached, or the user presses Retry"| IDLE
-    FETCH -->|"login refused, terms, protocol change, credentials locked"| ATT["needs-attention"]
-    ATT -->|"the user acts, or the secret store approval arrives"| IDLE
+    FETCH -->|"login refused, terms, a run of replies not understood, credentials locked"| ATT["needs-attention"]
+    ATT -->|"the user acts, the secret store approval arrives, or the hourly probe is understood"| IDLE
     IDLE & FETCH & BACKOFF & ATT -->|"the guard trips"| DIS["disabled-by-guard"]
     DIS -->|"the user re-enables"| IDLE
 ```
 
-*The state of one person on one connection. After a restart the service restores `disabled-by-guard`, the persistent `needs-attention` causes and a running rate-limit hold from the journal; everything else starts in `idle`. A connection runs one command at a time; when several are due, `current` goes before `graph` and `graph` before `logbook`.*
+*The state of one person on one connection. After a restart the service restores `disabled-by-guard`, the persistent `needs-attention` causes and a running rate-limit hold from the journal; everything else starts in `idle`; a stop for a reply that was not understood is probed again at the next whole hour after the stop. A connection runs one command at a time; when several are due, `current` goes before `graph` and `graph` before `logbook`.*
 
 The `current` feed is not polled by a timer. After each successful fetch the scheduler works out when the next reading should have been published:
 

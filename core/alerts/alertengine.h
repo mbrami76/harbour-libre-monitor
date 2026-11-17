@@ -26,8 +26,12 @@
 // different ones, and a reminder that was due several times in one coarse step is raised once.
 //
 // WHAT NO SETTING CAN DO. LL and HH are active the moment a reading is beyond the threshold, are
-// never snoozed, and an acknowledgement only pauses their reminders for 15 minutes (REQ-THR-01).
-// AlertSettings has no field that could change this.
+// never snoozed, and an acknowledgement does not silence them for good: it ends their reminders, and
+// when the re-alert time has passed with the condition still holding, the alert becomes active again
+// with a fresh notification and the reminders resume. The re-alert time is 5 minutes for LL and 15
+// minutes for HH (AlertSettings::reAlertLLMs and reAlertHHMs, alertsettings.h). The reminders
+// themselves (every 2 minutes for LL and HH) are separate settings. AlertSettings has no field that
+// could turn the return of an acknowledged LL or HH off (REQ-THR-01).
 //
 // PRIVACY. An effect carries the Subject's opaque UUID, the slot, the level and the state. It never
 // carries a glucose value or a name (REQ-UI-14); the reading stays in the

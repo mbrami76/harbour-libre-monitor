@@ -43,6 +43,7 @@ struct Script
     // Batches delivered while the command runs: feed -> records.
     QList<QPair<QString, QVector<LinkRecord> > > batches;
     int quarantined;                    // records reported as rejected (counts only)
+    QString detail;                     // the adapter's reason text of a failed command, as the link reports it
     FetchCompletion completion;        // for authenticate, `sensor` carries the settings_update
 };
 
@@ -444,6 +445,7 @@ inline void FakeLink::authenticate(const Credentials &credentials, const QString
             rep.outcome.errorClass = s.errorClass;
             rep.outcome.retryAfterS = s.retryAfterS;
             rep.outcome.killedBy = s.killedBy;
+            rep.detail = s.detail;
             if (s.killedBy != CommandOutcome::NotKilled) die(false);
         }
         m_world->guard.onCommandFinished(rep.outcome);
@@ -508,6 +510,7 @@ inline void FakeLink::runFetch(const QString &type, const QString &subjectRef, c
             rep.outcome.errorClass = s.errorClass;
             rep.outcome.retryAfterS = s.retryAfterS;
             rep.outcome.killedBy = s.killedBy;
+            rep.detail = s.detail;
             if (s.killedBy != CommandOutcome::NotKilled) die(s.killedBy == CommandOutcome::Exit);
         }
         m_world->commands.append(FakeWorld::CommandLogEntry{ started, m_world->clock.ms(), type, m_id.connectionId });

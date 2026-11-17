@@ -77,7 +77,11 @@ struct SessionResult
     enum Reason {
         None, CredentialsLocked, SecretStoreError, SpawnFailed, HelloTimeout,
         DeniedDisabled, DeniedVersion, DeniedCircuit, DeniedSpawnRate,
-        RateLimited, Transient, InvalidCommand, Attention
+        RateLimited, Transient, InvalidCommand, Attention,
+        // The login reply was not understood. Not a stop by itself: the schedule counts
+        // it like a fetch whose reply was not understood and decides. `adapterDetail` and
+        // `adapterVersion` are for the state entry it may lead to.
+        ProtocolChanged
     };
 
     SessionResult() : kind(Failed), reason(None), retryAfterS(-1) {}
@@ -93,6 +97,8 @@ struct SessionResult
     UtcTime retryAt;            // when trying again makes sense, if known
     int retryAfterS;            // the adapter's hint, -1 = none
     QString detail;
+    QString adapterDetail;      // ProtocolChanged only: the adapter's reason text, already scrubbed
+    QString adapterVersion;     // ProtocolChanged only
 };
 
 // Told about changes the Subject schedules cannot see from a command result.
@@ -130,6 +136,9 @@ public:
 
     // Runs one command. Only when !busy(). Completes `done` exactly once.
     void run(const SessionRequest &request, const Done &done);
+    // The same for a connection that is stopped by `protocol-changed`: the stop does not refuse
+    // it, so the scheduler can try one fetch now and then. A guard stop still refuses.
+    void probe(const SessionRequest &request, const Done &done);
 
     // Advances waits, renewal, idle close and daily recycle. `earliestDueMs` is the earliest
     // time any Subject of the connection wants a command (-1 = none).
@@ -140,6 +149,8 @@ public:
     void secretsAvailable();        // The app tells that the approval was given
     void credentialsChanged();
     void userRetry();
+    // A probe was understood: the stop ends (journal entry `clear`) and the Subjects are woken.
+    void probeSucceeded();
     void guardStopped();            // The guard denies this connection
     void reenabled();
     void shutdown();
@@ -172,7 +183,8 @@ private:
     void sendAuth(AuthMode mode, const QString &session);
     void onAuth(AuthMode mode, const CommandReport &report, const SessionGrant &grant,
                 quint64 generation);
-    void onAuthError(AuthMode mode, const CommandOutcome &outcome);
+    void onAuthError(AuthMode mode, const CommandOutcome &outcome, const QString &adapterDetail);
+    void runRequest(const SessionRequest &request, const Done &done, bool probe);
     void applyGrant(const SessionGrant &grant);
     void execute();
     void onCommandDone(const CommandReport &report, const FetchCompletion &completion,

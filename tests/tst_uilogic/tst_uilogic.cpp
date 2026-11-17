@@ -328,6 +328,7 @@ private slots:
         QVERIFY(v.showRetry);
         v = resolveSubject(attention("protocol-changed"));
         QCOMPARE(v.id, StateId::SourceChanged);
+        QVERIFY(v.showRetry);                           // the user can clear the stop
         v = resolveSubject(attention("credentials-missing"));
         QCOMPARE(v.id, StateId::CredentialsMissing);
         QVERIFY(v.showSetUpAccount);

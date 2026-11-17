@@ -107,6 +107,32 @@ void restartFrom(FakeWorld &fresh, const FakeWorld &old)
     fresh.clock.setMs(old.clock.ms());
 }
 
+
+    // A fetch script that fails with `protocol-changed` for the first `failures` calls and
+// answers normally afterwards.
+std::function<Script(const QString &, const QString &, const UtcTime &, const UtcTime &, const QStringList &)>
+protocolThenOk(FakeWorld &w, int failures, int *calls)
+{
+    return [&w, failures, calls](const QString &type, const QString &ref, const UtcTime &from,
+                                  const UtcTime &to, const QStringList &feeds) {
+        if (++*calls <= failures)
+            return fail(ErrorClass::ProtocolChanged);
+        return w.defaultFetch(type, ref, from, to, feeds);
+    };
+}
+
+
+// The attention entries of the state log of `w`.
+QVector<StateEntry> attentionEntries(FakeWorld &w)
+{
+    QVector<StateEntry> out;
+    const QVector<StateEntry> all = w.stateLog.load();
+    for (int i = 0; i < all.size(); ++i)
+        if (all.at(i).state == StateKind::attention())
+            out.append(all.at(i));
+    return out;
+}
+
 } // namespace
 
 class TstScheduler : public QObject
@@ -1502,7 +1528,7 @@ private slots:
         struct Case { ErrorClass cls; const char *expectState; const char *expectCause; };
         const Case cases[] = {
             { ErrorClass::TermsMustBeAccepted, "needs-attention", "terms" },
-            { ErrorClass::ProtocolChanged, "needs-attention", "protocol-changed" },
+            { ErrorClass::ProtocolChanged, "backoff", "protocol-suspected" },    // the first one only
             { ErrorClass::RateLimited, "backoff", "rate-limited" },
             { ErrorClass::InvalidCommand, "backoff", "internal" },
         };
@@ -1616,6 +1642,395 @@ private slots:
                 QVERIFY(w.commands[i].startMs - lastEnd[c] >= 10 * kSec);
             lastEnd[c] = w.commands[i].endMs;
         }
+    }
+
+    // =========================================================================================
+    // Patch 1.0.1: a reply that is not understood stops the connection only after a run
+    // of polls, and a stopped connection is probed again by itself.
+    // =========================================================================================
+
+    void oneOrTwoRepliesNotUnderstoodThenAGoodOneNeverStopTheConnection()
+    {
+        for (int failures = 1; failures <= 2; ++failures) {
+            FakeWorld w;
+            setup(w);
+            Spy spy;
+            w.scheduler->setListener(&spy);
+            int calls = 0;
+            w.fetchScript = protocolThenOk(w, failures, &calls);
+            w.runUntil(w.clock.ms() + 10 * kMinute);
+            QVERIFY(w.readings.count(sid("c1"), src("current")) > 0);
+            QVERIFY(spy.states.contains(QStringLiteral("backoff:protocol-suspected")));
+            QVERIFY(!spy.states.contains(QStringLiteral("needs-attention:protocol-changed")));
+            QVERIFY(!w.keeper.attention("c1").active());
+            QVERIFY(!spy.warnings.contains("protocol-changed"));
+            QCOMPARE(spy.states.count(QStringLiteral("backoff:protocol-suspected")), failures);
+            QCOMPARE(w.guard.scoreOf("c1"), 0.0);                   // not a violation, not a failure of the process
+        }
+    }
+
+    void threeRepliesNotUnderstoodInARowStopTheConnectionAsBefore()
+    {
+        FakeWorld w;
+        setup(w);
+        Spy spy;
+        w.scheduler->setListener(&spy);
+        int calls = 0;
+        w.fetchScript = protocolThenOk(w, 1000, &calls);
+        QVERIFY(advanceUntil(w, [&]() { return stateOf(w) == ScheduleState::NeedsAttention; }, kHour));
+        QCOMPARE(calls, 3);                                         // kProtocolPollsMax
+        QCOMPARE(causeOf(w), QStringLiteral("protocol-changed"));
+        QCOMPARE(spy.states.count(QStringLiteral("backoff:protocol-suspected")), 2);
+        QVERIFY(spy.warnings.contains("protocol-changed"));
+        QVERIFY(w.keeper.attention("c1").active());
+        QCOMPARE(w.keeper.attention("c1").cause, QStringLiteral("protocol-changed"));
+        QCOMPARE(w.settings.protocolPollsMax, 3);
+        QCOMPARE(w.settings.protocolProbeMs, 3600LL * 1000);
+    }
+
+    void theLimitOfTheRunIsASetting()
+    {
+        FakeWorld w;
+        w.settings.protocolPollsMax = 1;
+        setup(w);
+        w.fetchScript = [](const QString &, const QString &, const UtcTime &, const UtcTime &, const QStringList &) {
+            return fail(ErrorClass::ProtocolChanged);
+        };
+        QVERIFY(advanceUntil(w, [&]() { return stateOf(w) == ScheduleState::NeedsAttention; }, kHour));
+        QCOMPARE(w.commands.size(), 1);                             // the first reply stops it
+    }
+
+    void aPollThatWasUnderstoodEndsTheRun()
+    {
+        FakeWorld w;
+        setup(w);
+        Spy spy;
+        w.scheduler->setListener(&spy);
+        int calls = 0;
+        // two bad replies, one good one, again and again: the run never reaches three
+        w.fetchScript = [&](const QString &type, const QString &ref, const UtcTime &from, const UtcTime &to, const QStringList &feeds) {
+            if (++calls % 3 != 0)
+                return fail(ErrorClass::ProtocolChanged);
+            return w.defaultFetch(type, ref, from, to, feeds);
+        };
+        w.runUntil(w.clock.ms() + 3 * kHour);
+        QVERIFY(calls >= 12);
+        QVERIFY(!spy.states.contains(QStringLiteral("needs-attention:protocol-changed")));
+        QVERIFY(!w.keeper.attention("c1").active());
+    }
+
+    void aLoginReplyNotUnderstoodCountsInTheSameRun()
+    {
+        // Two login replies and then a good one: no stop.
+        {
+            FakeWorld w;
+            setup(w);
+            int n = 0;
+            w.authScript = [&]() { return ++n <= 2 ? fail(ErrorClass::ProtocolChanged) : Script(); };
+            w.runUntil(w.clock.ms() + kHour);
+            QVERIFY(!w.keeper.attention("c1").active());
+            QVERIFY(w.readings.count(sid("c1"), src("current")) > 0);
+            QVERIFY(n >= 3);
+        }
+        // Three in a row stop it, with the same attention as a fetch reply.
+        FakeWorld w;
+        setup(w);
+        Spy spy;
+        w.scheduler->setListener(&spy);
+        w.authScript = [&]() { return fail(ErrorClass::ProtocolChanged); };
+        QVERIFY(advanceUntil(w, [&]() { return stateOf(w) == ScheduleState::NeedsAttention; }, 3 * kHour));
+        QCOMPARE(w.authStarts.size(), 3);
+        QCOMPARE(causeOf(w), QStringLiteral("protocol-changed"));
+        QCOMPARE(spy.states.count(QStringLiteral("backoff:protocol-suspected")), 2);
+        QVERIFY(w.keeper.attention("c1").active());
+        QVERIFY(spy.warnings.contains("protocol-changed"));
+
+        // and the probe goes through the login: still refused, the stop stays; then it works
+        const qint64 stopAt = w.keeper.attention("c1").since.msecsSinceEpoch();
+        w.runUntil(stopAt + kHour + 3 * kMinute);
+        QCOMPARE(w.authStarts.size(), 4);                           // one probe, one login
+        QCOMPARE(stateOf(w), ScheduleState::NeedsAttention);
+        w.authScript = []() { return Script(); };
+        w.runUntil(stopAt + 2 * kHour + 3 * kMinute);
+        QCOMPARE(stateOf(w) == ScheduleState::NeedsAttention, false);
+        QVERIFY(!w.keeper.attention("c1").active());
+        QVERIFY(w.readings.count(sid("c1"), src("current")) > 0);
+    }
+
+    void aStoppedConnectionIsProbedOnceAnHourAndAnUnderstoodProbeResumesIt()
+    {
+        FakeWorld w;
+        setup(w);
+        Spy spy;
+        w.scheduler->setListener(&spy);
+        bool sourceOk = false;
+        w.fetchScript = [&](const QString &type, const QString &ref, const UtcTime &from, const UtcTime &to, const QStringList &feeds) {
+            return sourceOk ? w.defaultFetch(type, ref, from, to, feeds) : fail(ErrorClass::ProtocolChanged);
+        };
+        QVERIFY(advanceUntil(w, [&]() { return stateOf(w) == ScheduleState::NeedsAttention; }, kHour));
+        const qint64 stopAt = w.keeper.attention("c1").since.msecsSinceEpoch();
+        const int commandsAtStop = w.commands.size();
+
+        w.runUntil(stopAt + kHour - 2 * kSec);                      // nothing before the hour
+        QCOMPARE(w.commands.size(), commandsAtStop);
+        QVERIFY(w.scheduler->nextWakeAt().isValid());
+
+        sourceOk = true;
+        w.runUntil(stopAt + kHour + 2 * kMinute);                   // the probe, then normal polling
+        QVERIFY(w.commands.size() > commandsAtStop);
+        QVERIFY(w.commands[commandsAtStop].startMs >= stopAt + kHour);
+        QVERIFY(!w.keeper.attention("c1").active());
+        QVERIFY(stateOf(w) != ScheduleState::NeedsAttention);
+        QVERIFY(w.readings.count(sid("c1"), src("current")) > 0);   // the probe's reading is stored
+        QVERIFY(w.stateLog.size() >= 2);                            // attention, then clear
+        QCOMPARE(w.stateLog.load().last().state, StateKind::clear());
+    }
+
+    void aFailedProbeKeepsTheStopAndTheNextOneIsAnIntervalLater()
+    {
+        FakeWorld w;
+        setup(w);
+        w.fetchScript = [](const QString &, const QString &, const UtcTime &, const UtcTime &, const QStringList &) {
+            return fail(ErrorClass::ProtocolChanged);
+        };
+        QVERIFY(advanceUntil(w, [&]() { return stateOf(w) == ScheduleState::NeedsAttention; }, kHour));
+        const qint64 stopAt = w.keeper.attention("c1").since.msecsSinceEpoch();
+        const int commandsAtStop = w.commands.size();
+        const int logAtStop = w.stateLog.size();
+
+        w.runUntil(stopAt + kHour + 5 * kMinute);
+        QCOMPARE(w.commands.size(), commandsAtStop + 1);            // exactly one probe
+        QCOMPARE(stateOf(w), ScheduleState::NeedsAttention);
+        QCOMPARE(causeOf(w), QStringLiteral("protocol-changed"));
+        QVERIFY(w.keeper.attention("c1").active());
+        QCOMPARE(w.keeper.attention("c1").since.msecsSinceEpoch(), stopAt);   // nothing new written
+        QCOMPARE(w.stateLog.size(), logAtStop);
+        const qint64 firstProbe = w.commands.last().startMs;
+
+        w.runUntil(stopAt + 2 * kHour + 5 * kMinute);
+        QCOMPARE(w.commands.size(), commandsAtStop + 2);
+        QVERIFY(w.commands.last().startMs - firstProbe >= kHour);
+        QCOMPARE(w.stateLog.size(), logAtStop);
+
+        // a failed probe is not counted by the guard or by the circuit breaker
+        QCOMPARE(w.guard.scoreOf("c1"), 0.0);
+        QVERIFY(!w.guard.isDisabled("c1"));
+        QCOMPARE(w.guard.mayStart(StartRequest()).kind, MayStartResult::Allowed);
+
+        // the user's Retry stays what it was
+        w.scheduler->userRetry("c1");
+        QVERIFY(!w.keeper.attention("c1").active());
+        QCOMPARE(stateOf(w), ScheduleState::Idle);
+    }
+
+    void aProbeWithRejectedRecordsIsNotUnderstood()
+    {
+        FakeWorld w;
+        setup(w);
+        bool probing = false;
+        w.fetchScript = [&](const QString &type, const QString &ref, const UtcTime &from, const UtcTime &to, const QStringList &feeds) {
+            if (!probing)
+                return fail(ErrorClass::ProtocolChanged);
+            Script s = w.defaultFetch(type, ref, from, to, feeds);
+            s.quarantined = 1;
+            return s;
+        };
+        QVERIFY(advanceUntil(w, [&]() { return stateOf(w) == ScheduleState::NeedsAttention; }, kHour));
+        const qint64 stopAt = w.keeper.attention("c1").since.msecsSinceEpoch();
+        probing = true;
+        w.runUntil(stopAt + kHour + 5 * kMinute);
+        QCOMPARE(stateOf(w), ScheduleState::NeedsAttention);
+        QVERIFY(w.keeper.attention("c1").active());
+    }
+
+    void theProbeTimeSurvivesARestartWhileStopped()
+    {
+        FakeWorld a;
+        setup(a);
+        a.fetchScript = [](const QString &, const QString &, const UtcTime &, const UtcTime &, const QStringList &) {
+            return fail(ErrorClass::ProtocolChanged);
+        };
+        QVERIFY(advanceUntil(a, [&]() { return stateOf(a) == ScheduleState::NeedsAttention; }, kHour));
+        const qint64 stopAt = a.keeper.attention("c1").since.msecsSinceEpoch();
+
+        // restart 20 minutes after the stop: still stopped, no fetch, the probe at stop + 1 h
+        FakeWorld b;
+        restartFrom(b, a);
+        b.clock.setMs(stopAt + 20 * kMinute);
+        b.build();
+        setup(b);
+        b.fetchScript = [](const QString &, const QString &, const UtcTime &, const UtcTime &, const QStringList &) {
+            return fail(ErrorClass::ProtocolChanged);
+        };
+        QCOMPARE(stateOf(b), ScheduleState::NeedsAttention);
+        b.runUntil(stopAt + kHour - 2 * kSec);
+        QCOMPARE(b.commands.size(), 0);
+        b.runUntil(stopAt + kHour + 3 * kMinute);
+        QCOMPARE(b.commands.size(), 1);
+        QVERIFY(b.commands[0].startMs >= stopAt + kHour);
+
+        // restart after two and a half hours: the next whole hour after the stop, not at once
+        FakeWorld c;
+        restartFrom(c, a);
+        c.clock.setMs(stopAt + 150 * kMinute);
+        c.build();
+        setup(c);
+        c.fetchScript = [](const QString &, const QString &, const UtcTime &, const UtcTime &, const QStringList &) {
+            return fail(ErrorClass::ProtocolChanged);
+        };
+        c.runUntil(stopAt + 3 * kHour - 2 * kSec);
+        QCOMPARE(c.commands.size(), 0);
+        c.runUntil(stopAt + 3 * kHour + 3 * kMinute);
+        QCOMPARE(c.commands.size(), 1);
+    }
+
+    void theProbeIntervalIsASettingAndZeroSwitchesProbesOff()
+    {
+        FakeWorld w;
+        w.settings.protocolProbeMs = 10 * kMinute;
+        setup(w);
+        w.fetchScript = [](const QString &, const QString &, const UtcTime &, const UtcTime &, const QStringList &) {
+            return fail(ErrorClass::ProtocolChanged);
+        };
+        QVERIFY(advanceUntil(w, [&]() { return stateOf(w) == ScheduleState::NeedsAttention; }, kHour));
+        const int n = w.commands.size();
+        w.runUntil(w.clock.ms() + 25 * kMinute);
+        QCOMPARE(w.commands.size(), n + 2);
+
+        FakeWorld off;
+        off.settings.protocolProbeMs = 0;
+        setup(off);
+        off.fetchScript = [](const QString &, const QString &, const UtcTime &, const UtcTime &, const QStringList &) {
+            return fail(ErrorClass::ProtocolChanged);
+        };
+        QVERIFY(advanceUntil(off, [&]() { return stateOf(off) == ScheduleState::NeedsAttention; }, kHour));
+        const int m = off.commands.size();
+        off.runUntil(off.clock.ms() + 5 * kHour);
+        QCOMPARE(off.commands.size(), m);
+    }
+
+    // =========================================================================================
+    // Patch 1.0.1: the adapter's reason in the journal entry of the stop
+    // =========================================================================================
+
+    void theJournalEntryOfTheStopCarriesTheAdaptersFixedReason()
+    {
+        const char *reasons[] = { "HTTP 403", "reply is not a JSON object",
+                                  "connection has no glucoseMeasurement",
+                                  "feed graph: too many unusable items" };
+        for (size_t i = 0; i < sizeof(reasons) / sizeof(reasons[0]); ++i) {
+            // a fetch reply
+            FakeWorld w;
+            setup(w);
+            const QString reason = QString::fromLatin1(reasons[i]);
+            w.fetchScript = [reason](const QString &, const QString &, const UtcTime &, const UtcTime &, const QStringList &) {
+                Script s = fail(ErrorClass::ProtocolChanged);
+                s.detail = reason;
+                return s;
+            };
+            QVERIFY(advanceUntil(w, [&]() { return stateOf(w) == ScheduleState::NeedsAttention; }, kHour));
+            const QVector<StateEntry> e = attentionEntries(w);
+            QCOMPARE(e.size(), 1);
+            QCOMPARE(e.at(0).cause, QStringLiteral("protocol-changed"));
+            QCOMPARE(e.at(0).adapterDetail, reason);
+            QCOMPARE(e.at(0).detail, QStringLiteral("source reply not understood"));   // the core's own text, as before
+
+            // the same reason through the login reply
+            FakeWorld l;
+            setup(l);
+            l.authScript = [reason]() {
+                Script s = fail(ErrorClass::ProtocolChanged);
+                s.detail = reason;
+                return s;
+            };
+            QVERIFY(advanceUntil(l, [&]() { return stateOf(l) == ScheduleState::NeedsAttention; }, 3 * kHour));
+            const QVector<StateEntry> le = attentionEntries(l);
+            QCOMPARE(le.size(), 1);
+            QCOMPARE(le.at(0).adapterDetail, reason);
+        }
+    }
+
+    void aReasonTextThatCarriesANameOrANumberFromTheSourceNeverReachesTheJournal()
+    {
+        const QStringList bad = QStringList()
+            << QStringLiteral("connection has no glucoseMeasurement for Maria Rossi, 112 mg/dL at 2026-11-17T14:57:00Z")
+            << QStringLiteral("HTTP 403 for Maria Rossi")
+            << QStringLiteral("HTTP 4031")
+            << QStringLiteral("reply is not a JSON object: {\"patientId\":\"abc123\",\"firstName\":\"Maria\"}")
+            << QStringLiteral("feed Maria: too many unusable items")
+            << QStringLiteral("token=abc123-SECRET");
+        for (int i = 0; i < bad.size(); ++i) {
+            FakeWorld w;
+            setup(w);
+            Spy spy;
+            w.scheduler->setListener(&spy);
+            const QString text = bad.at(i);
+            w.fetchScript = [text](const QString &, const QString &, const UtcTime &, const UtcTime &, const QStringList &) {
+                Script s = fail(ErrorClass::ProtocolChanged);
+                s.detail = text;
+                return s;
+            };
+            QVERIFY(advanceUntil(w, [&]() { return stateOf(w) == ScheduleState::NeedsAttention; }, kHour));
+            const QVector<StateEntry> e = attentionEntries(w);
+            QCOMPARE(e.size(), 1);
+            QCOMPARE(e.at(0).adapterDetail, QStringLiteral("reason not in the known list"));
+            QStringList all = spy.states + spy.warnings;
+            const QVector<StateEntry> states = w.stateLog.load();
+            for (int k = 0; k < states.size(); ++k)
+                all << states[k].detail << states[k].cause << states[k].connection << states[k].adapter
+                    << states[k].adapterVersion << states[k].adapterDetail;
+            for (int k = 0; k < w.sink.entries.size(); ++k)
+                all << w.sink.entries[k].event << w.sink.entries[k].detail;
+            const QString blob = all.join("\n");
+            const char *forbidden[] = { "Maria", "Rossi", "112", "2026-11-17", "abc123", "SECRET", "4031" };
+            for (size_t k = 0; k < sizeof(forbidden) / sizeof(forbidden[0]); ++k)
+                QVERIFY2(!blob.contains(QLatin1String(forbidden[k])), forbidden[k]);
+        }
+    }
+
+    void theReasonListIsClosed()
+    {
+        QCOMPARE(adapterReasonForJournal("HTTP 403"), QStringLiteral("HTTP 403"));
+        QCOMPARE(adapterReasonForJournal("  reply has no data member "), QStringLiteral("reply has no data member"));
+        QCOMPARE(adapterReasonForJournal("feed logbook: too many unusable items"),
+                 QStringLiteral("feed logbook: too many unusable items"));
+        QCOMPARE(adapterReasonForJournal("a burst of records was rejected"),
+                 QStringLiteral("a burst of records was rejected"));
+        QCOMPARE(adapterReasonForJournal(""), QStringLiteral("reason not in the known list"));
+        QCOMPARE(adapterReasonForJournal("HTTP 40"), QStringLiteral("reason not in the known list"));
+        QCOMPARE(adapterReasonForJournal("HTTP 403\n"), QStringLiteral("HTTP 403"));        // trailing white space only
+        QCOMPARE(adapterReasonForJournal("HTTP 403 Forbidden"), QStringLiteral("reason not in the known list"));
+        QCOMPARE(adapterReasonForJournal("[redacted]"), QStringLiteral("reason not in the known list"));
+    }
+
+    void theAdapterReasonSurvivesARealJournalFile()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.path() + "/journal.db";
+        {
+            Journal j;
+            QVERIFY(j.open(path));
+            JournalStateLog log(&j);
+            FakeWorld a;
+            a.keeper.~StateKeeper();
+            new (&a.keeper) StateKeeper(&log, &a.clock);
+            a.keeper.load();
+            a.keeper.setAttention("c1", StateCause::protocolChanged(), "source reply not understood",
+                                  "libre", "0.1.0", "HTTP 403");
+            a.keeper.setAttention("c2", StateCause::terms(), "x");              // no reason: no key
+            QCOMPARE(a.keeper.pendingWrites(), 0);
+        }
+        Journal j;
+        QVERIFY(j.open(path));
+        const QVector<JournalEntry> entries = j.entries(JournalKind::connectionState());
+        QCOMPARE(entries.size(), 2);
+        QCOMPARE(entries.at(0).extra.value(ConnectionStateKey::adapterDetail()).toString(), QStringLiteral("HTTP 403"));
+        QVERIFY(!entries.at(1).extra.contains(ConnectionStateKey::adapterDetail()));
+        JournalStateLog log(&j);
+        const QVector<StateEntry> loaded = log.load();
+        QCOMPARE(loaded.size(), 2);
+        QCOMPARE(loaded.at(0).adapterDetail, QStringLiteral("HTTP 403"));
+        QVERIFY(loaded.at(1).adapterDetail.isEmpty());
     }
 
 };

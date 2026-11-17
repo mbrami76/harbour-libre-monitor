@@ -1,7 +1,7 @@
 Name:       harbour-libre-monitor
 
 Summary:    Caregiver App to monitor glucose sensors and get alerts
-Version:    1.0.0
+Version:    1.0.1
 Release:    1
 License:    GPLv3+
 URL:        https://michelebrami.it/LibreMonitor

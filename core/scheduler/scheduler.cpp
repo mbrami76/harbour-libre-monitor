@@ -3,6 +3,7 @@
 #include "scheduler/scheduler.h"
 
 #include <QJsonValue>
+#include <QRegExp>
 
 namespace lm {
 
@@ -23,6 +24,32 @@ QString subjectKey(const QString &connection, const QUuid &subject)
 bool isSubjectCause(const QString &cause) { return cause == StateCause::subjectUnavailable(); }
 
 } // namespace
+
+QString adapterReasonForJournal(const QString &text)
+{
+    // Every phrase of a `protocol-changed` error that the Libre adapter (libreclient.cpp,
+    // libreadapter.cpp) and the link (adapterlink.cpp) produce. A phrase that changes in a later
+    // version falls out of the list on purpose: a fixed text never carries data, a free one might.
+    static const char *const kKnown[] = {
+        "reply is not a JSON object", "reply has no integer status", "reply has no data member",
+        "reply too large", "login reply has no data object", "login reply not usable",
+        "login redirect not usable", "login reply lacks the expected ticket or user id",
+        "connections is not an array", "connection without patientId",
+        "connection has no glucoseMeasurement", "graph data is not an object",
+        "graph reply has no graphData", "graphData is not an array", "logbook data is not an array",
+        "the reply is malformed", "a burst of records was rejected",
+        "the adapter sent an unknown error class"
+    };
+    static const QRegExp http(QStringLiteral("^HTTP [0-9]{3}$"));
+    static const QRegExp feed(QStringLiteral("^feed (current|graph|logbook): too many unusable items$"));
+    const QString t = text.trimmed();
+    for (size_t i = 0; i < sizeof(kKnown) / sizeof(kKnown[0]); ++i)
+        if (t == QLatin1String(kKnown[i]))
+            return t;
+    if (http.exactMatch(t) || feed.exactMatch(t))
+        return t;
+    return QStringLiteral("reason not in the known list");
+}
 
 QString scheduleStateName(ScheduleState s)
 {
@@ -157,6 +184,16 @@ void Scheduler::start(const UtcTime &serviceDownSince)
             }
         }
 
+        // A stop by `protocol-changed` that is still there is probed every kProtocolProbeS.
+        // The next probe is the next whole multiple of the interval after the stop time, which
+        // the attention entry keeps: the hourly rhythm survives a restart, a restart does not
+        // add a probe right after one made a few minutes before, and nothing new is persisted
+        // (a failed probe writes nothing, so the stop time stays the time of the stop).
+        c.protocolStreak = 0;
+        c.nextProbeMs = -1;
+        if (att.active() && att.cause == StateCause::protocolChanged() && !probe)
+            c.nextProbeMs = probeTimeAfter(att.since, now);
+
         for (int j = 0; j < c.subjects.size(); ++j) {
             Subj &s = *c.subjects.at(j);
             const UtcTime newest = m_ports.readings->newestMeasurement(
@@ -210,6 +247,7 @@ void Scheduler::tick()
         c.session->tick(earliestDueMs(c));
         expireTimers(c, now);
         dispatch(c, now);
+        probeIfDue(c, now);
         for (int j = 0; j < c.subjects.size(); ++j)
             refreshStaleness(*c.subjects.at(j), now);
     }
@@ -357,6 +395,10 @@ void Scheduler::onConnFailed(Conn &c, Subj &s, const SessionResult &r, qint64 no
     case SessionResult::RateLimited:
         rateLimited(c, r.retryAfterS, now);
         return;
+    case SessionResult::ProtocolChanged:
+        // The login reply, counted like a fetch reply that was not understood.
+        protocolSeen(c, s, r.detail, r.adapterDetail, r.adapterVersion, now);
+        return;
     case SessionResult::InvalidCommand: {
         ++c.invalidN;
         if (c.invalidN >= m_s.invalidCommandMax) {
@@ -385,6 +427,7 @@ void Scheduler::onOutcomeOk(Conn &c, Subj &s, int feed, const SessionResult &r, 
     s.subjectFailN = 0;
     s.firstFailMs = -1;
     c.invalidN = 0;
+    c.protocolStreak = 0;               // a reply that was understood ends the run
     c.lastSuccessBySubject.insert(subjectKey(c.cfg.id, s.cfg.id), now);
 
     // The sensor object of the completion feeds the warm-up cause (REQ-SEN-01).
@@ -451,8 +494,8 @@ void Scheduler::onOutcomeError(Conn &c, Subj &s, const SessionResult &r, qint64 
                                o.link.adapterVersion);
         return;
     case ErrorClass::ProtocolChanged:
-        attentionForConnection(c, StateCause::protocolChanged(), QStringLiteral("source reply not understood"),
-                               true, o.link.adapterVersion);
+        protocolSeen(c, s, QStringLiteral("source reply not understood"), r.report.detail,
+                     o.link.adapterVersion, now);
         return;
     case ErrorClass::InvalidCommand:
         ++c.invalidN;
@@ -543,10 +586,17 @@ void Scheduler::rateLimited(Conn &c, int retryAfterS, qint64 now)
 }
 
 void Scheduler::attentionForConnection(Conn &c, const QString &cause, const QString &detail,
-                                       bool persist, const QString &version)
+                                       bool persist, const QString &version,
+                                       const QString &adapterDetail)
 {
     if (persist)
-        m_ports.state->setAttention(c.cfg.id, cause, detail, c.cfg.adapterId, version);
+        m_ports.state->setAttention(c.cfg.id, cause, detail, c.cfg.adapterId, version, adapterDetail);
+    if (persist && cause == StateCause::protocolChanged()) {
+        c.protocolStreak = 0;
+        // The first probe, one interval after the stop time the entry now carries, so that it is the
+        // same time start() recomputes after a restart.
+        c.nextProbeMs = probeTimeAfter(m_ports.state->attention(c.cfg.id).since, nowMs());
+    }
     for (int j = 0; j < c.subjects.size(); ++j) {
         Subj &s = *c.subjects.at(j);
         if (s.state != ScheduleState::DisabledByGuard && !(s.state == ScheduleState::NeedsAttention
@@ -561,6 +611,128 @@ void Scheduler::disableConnection(Conn &c, const QString &cause)
 {
     for (int j = 0; j < c.subjects.size(); ++j)
         setState(*c.subjects.at(j), ScheduleState::DisabledByGuard, cause);
+}
+
+// One reply that was not understood (a fetch, or the login). Counts toward a run of
+// kProtocolPollsMax consecutive polls: each earlier one is a backoff with the transient
+// delays, the last one stops the connection as before. The run is the connection's, not the
+// Subject's, because the reply comes from one link and the Subjects are polled one after the
+// other; it is ended by a poll that was understood (onOutcomeOk). A kill by the guard or a
+// failure that is no reply (spawn, deadline) never comes here and leaves the run as it is.
+//
+// The adapter's reason goes into the journal entry of the stop as `adapter_detail`, reduced by
+// adapterReasonForJournal to a fixed text. The backoffs before the stop are not journaled.
+void Scheduler::protocolSeen(Conn &c, Subj &s, const QString &detail, const QString &adapterText,
+                             const QString &version, qint64 now)
+{
+    ++c.protocolStreak;
+    if (c.protocolStreak >= m_s.protocolPollsMax) {
+        attentionForConnection(c, StateCause::protocolChanged(), detail, true, version,
+                               adapterReasonForJournal(adapterText));
+        return;
+    }
+    transientBackoff(c, s, -1, -1, StateCause::protocolSuspected(), now);
+}
+
+bool Scheduler::protocolStopped(const Conn &c) const
+{
+    const AttentionState a = m_ports.state->attention(c.cfg.id);
+    return a.active() && a.cause == StateCause::protocolChanged();
+}
+
+// The first multiple of the probe interval after the stop that lies after `now`.
+qint64 Scheduler::probeTimeAfter(const UtcTime &since, qint64 now) const
+{
+    const qint64 iv = m_s.protocolProbeMs;
+    if (iv <= 0)
+        return -1;
+    if (!since.isValid() || since.msecsSinceEpoch() > now)
+        return now + iv;
+    const qint64 from = since.msecsSinceEpoch();
+    return from + ((now - from) / iv + 1) * iv;
+}
+
+// While a connection is stopped by `protocol-changed`, one fetch of the `current` feed for its
+// first Subject every kProtocolProbeS. The stop is not lifted for it: the Subjects stay
+// in needs-attention and nothing is written unless the probe is understood. A probe that
+// fails is not a poll of the schedule, so it does not count toward anything: no run, no
+// subject failure, no guard score (the guard still sees a kill, as it always does).
+void Scheduler::probeIfDue(Conn &c, qint64 now)
+{
+    if (m_s.protocolProbeMs <= 0 || !protocolStopped(c) || m_ports.state->connectionDisabled(c.cfg.id))
+        return;
+    if (c.nextProbeMs < 0)
+        c.nextProbeMs = now + m_s.protocolProbeMs;
+    if (now < c.nextProbeMs || c.session->busy() || c.inflight)
+        return;
+    const UtcTime gate = c.session->gateOpenAt();
+    if (gate.isValid() && gate.msecsSinceEpoch() > now)
+        return;
+    Subj *s = 0;
+    for (int j = 0; j < c.subjects.size() && !s; ++j) {
+        Subj *x = c.subjects.at(j);
+        if (x->state == ScheduleState::NeedsAttention && x->cause == StateCause::protocolChanged())
+            s = x;
+    }
+    if (!s)
+        return;
+    SessionRequest req;
+    req.type = SessionRequest::Current;
+    req.subjectRef = s->cfg.subjectRef;
+    req.subjects = 1;
+    c.inflight = s;
+    c.newReading = false;
+    c.lateRecords = 0;
+    s->inflightFeed = FeedCurrent;
+    c.nextProbeMs = now + m_s.protocolProbeMs;      // the next one, should this one fail
+    Conn *cp = &c;
+    Subj *sp = s;
+    c.session->probe(req, [this, cp, sp](const SessionResult &r) { onProbeResult(cp, sp, r); });
+}
+
+void Scheduler::onProbeResult(Conn *c, Subj *s, const SessionResult &r)
+{
+    c->inflight = 0;
+    s->inflightFeed = -1;
+    if (!protocolStopped(*c))
+        return;                         // the stop ended meanwhile (the user's retry): nothing to judge
+    const qint64 now = nowMs();
+    const CommandOutcome &o = r.report.outcome;
+
+    qint64 rejected = 0;
+    for (QMap<int, qint64>::const_iterator it = o.quarantinedByReason.begin();
+         it != o.quarantinedByReason.end(); ++it)
+        rejected += it.value();
+
+    if (r.kind == SessionResult::Done && o.result == CommandOutcome::Ok && rejected == 0) {
+        // Understood: the stop ends and the Subjects are woken; the poll counts as any other.
+        c->protocolStreak = 0;
+        c->nextProbeMs = -1;
+        c->session->probeSucceeded();
+        onOutcomeOk(*c, *s, FeedCurrent, r, now);
+        refreshStaleness(*s, now);
+        return;
+    }
+
+    // Not understood, or not a reply at all: the stop stays and the next probe is one interval
+    // away, or later if the source asked for more time. Only an answer that names another
+    // cause changes the stop (terms, a refused login, the guard).
+    int retryAfterS = -1;
+    if (r.kind == SessionResult::Failed) {
+        if (r.reason == SessionResult::DeniedDisabled || r.reason == SessionResult::DeniedVersion
+            || r.reason == SessionResult::Attention)
+            onConnFailed(*c, *s, r, now);
+        else if (r.reason == SessionResult::RateLimited)
+            retryAfterS = r.retryAfterS;
+    } else if (o.result == CommandOutcome::Error && o.killedBy == CommandOutcome::NotKilled) {
+        if (o.errorClass == ErrorClass::TermsMustBeAccepted)
+            onOutcomeError(*c, *s, r, now);
+        else if (o.errorClass == ErrorClass::RateLimited)
+            retryAfterS = o.retryAfterS;
+    }
+    if (retryAfterS > 0 && now + qint64(retryAfterS) * 1000 > c->nextProbeMs)
+        c->nextProbeMs = now + qint64(retryAfterS) * 1000;
+    refreshStaleness(*s, now);
 }
 
 // ---- state changes and events ------------------------------------------------------------
@@ -616,6 +788,8 @@ void Scheduler::userRetry(const QString &connection)
         m_ports.state->clearConnection(c->cfg.id, QStringLiteral("retry by the user"));
     c->lastHoldMs = 0;
     c->invalidN = 0;
+    c->protocolStreak = 0;
+    c->nextProbeMs = -1;
     for (int j = 0; j < c->subjects.size(); ++j) {
         Subj &s = *c->subjects.at(j);
         if (s.state == ScheduleState::Backoff || s.state == ScheduleState::NeedsAttention) {
@@ -814,6 +988,9 @@ UtcTime Scheduler::nextWakeAt() const
                 Keep::min(&best, ref + qint64(m_s.staleFactor) * effectiveMs(c, s, FeedCurrent, now) + 1);
             }
         }
+        // The next probe of a connection stopped by `protocol-changed`.
+        if (m_s.protocolProbeMs > 0 && protocolStopped(c) && !c.session->busy() && !c.inflight)
+            Keep::min(&best, c.nextProbeMs > gateMs ? c.nextProbeMs : gateMs);
         const UtcTime w = c.session->nextWakeAt(earliestDueMs(c));
         if (w.isValid())
             Keep::min(&best, w.msecsSinceEpoch());

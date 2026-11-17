@@ -29,7 +29,8 @@ struct SchedulerSettings
           backfillWindowMs(12LL * 3600 * 1000), logbookWindowMs(13LL * 24 * 3600 * 1000),
           staleFactor(3),
           backoffBaseMs(30 * 1000), backoffFactor(2), backoffCapMs(900 * 1000), backoffJitter(0.25),
-          rejectPollsMax(5), rateHoldInitialMs(1800 * 1000), rateHoldCapMs(6LL * 3600 * 1000),
+          rejectPollsMax(5), protocolPollsMax(3), protocolProbeMs(3600LL * 1000),
+          rateHoldInitialMs(1800 * 1000), rateHoldCapMs(6LL * 3600 * 1000),
           rateFloorCapMs(600 * 1000), rateCalmMs(24LL * 3600 * 1000), subjectFailMax(8),
           invalidCommandMax(3), readingQueueMax(20000),
           minAuthGapMs(60 * 1000), authRetryGapMs(300 * 1000), authRetryCapMs(3600 * 1000),
@@ -62,6 +63,14 @@ struct SchedulerSettings
     qint64 backoffCapMs;            // kBackoffCapS
     double backoffJitter;           // kBackoffJitter
     int rejectPollsMax;             // kRejectPollsMax
+    // A reply of the source that the adapter cannot understand (`protocol-changed`) stops a
+    // connection only after this many consecutive polls: one odd reply is far more
+    // often a passing fault than a change of the source. Each earlier one is a backoff with
+    // the cause `protocol-suspected`.
+    int protocolPollsMax;           // kProtocolPollsMax
+    // While a connection is stopped by `protocol-changed`, one probe fetch at this interval;
+    // the first reply that is understood ends the stop.
+    qint64 protocolProbeMs;         // kProtocolProbeS
     qint64 rateHoldInitialMs;       // kRateHoldInitialS
     qint64 rateHoldCapMs;           // kRateHoldCapS (also the cap on a retry_after hint)
     qint64 rateFloorCapMs;          // kRateFloorCapS

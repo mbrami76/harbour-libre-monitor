@@ -45,6 +45,5 @@ hostbuild {
 }
 
 DISTFILES += \
-    rpm/harbour-libre-monitor.changes.in \
-    rpm/harbour-libre-monitor.changes.run.in \
+    rpm/harbour-libre-monitor.changes \
     rpm/harbour-libre-monitor.spec

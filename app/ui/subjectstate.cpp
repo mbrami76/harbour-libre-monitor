@@ -106,6 +106,9 @@ SubjectView resolveSubject(const SubjectInput &in)
         case StateId::CredentialsLocked: v.showAskAgain = true; break;
         case StateId::LoginRefused: v.showEditAccount = true; break;
         case StateId::TermsMustBeAccepted: v.showRetry = true; break;
+        // The stop by `protocol-changed` was once a dead end that only an update cleared; the
+        // user may now try again at once, besides the hourly probe of the scheduler.
+        case StateId::SourceChanged: v.showRetry = true; break;
         case StateId::CredentialsMissing: v.showSetUpAccount = true; break;
         case StateId::SubjectUnavailable: v.showEditAccount = true; break;
         case StateId::InternalProblem: v.showRetry = true; break;
