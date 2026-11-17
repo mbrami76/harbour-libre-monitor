@@ -1,0 +1,9 @@
+* Tue Nov 17 2026 Michele Brami <info@michelebrami.it> 1.0.1-1
+- A single unusable reply from the source no longer stops monitoring.
+- A connection that was stopped for such a reply is tried again every hour.
+- The patient page and tile offer Retry for that stop.
+- The journal records the reason the adapter gave for the stop.
+- Some comments in the source were corrected.
+
+* Sun Nov 01 2026 Michele Brami <info@michelebrami.it> 1.0.0-1
+- First public release.

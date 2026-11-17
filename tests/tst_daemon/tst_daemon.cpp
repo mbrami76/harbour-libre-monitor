@@ -1048,7 +1048,7 @@ void TstDaemon::theVersionDefineIsTheSpecsVersionAndRelease()
     }
     QVERIFY(!version.isEmpty() && !release.isEmpty());
     QCOMPARE(QStringLiteral(LM_APP_VERSION), version + QLatin1Char('-') + release);
-    QCOMPARE(QStringLiteral(LM_APP_VERSION), QStringLiteral("1.0.0-1"));
+    QCOMPARE(QStringLiteral(LM_APP_VERSION), QStringLiteral("1.0.1-1"));
 }
 
 // The alarm's banner must not wait behind the resident notice's own banner: in

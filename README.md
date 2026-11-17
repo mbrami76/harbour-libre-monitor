@@ -32,10 +32,10 @@ Taken on the emulator with simulated data. The black bar at the top of the pages
 
 ## Install
 
-The application is built as one RPM package, `harbour-libre-monitor-1.0.0-1.aarch64.rpm`. It needs no software beyond what Sailfish OS provides. Copy the file to the phone and install it from a shell:
+The application is built as one RPM package, `harbour-libre-monitor-1.0.1-1.aarch64.rpm`. It needs no software beyond what Sailfish OS provides. Copy the file to the phone and install it from a shell:
 
 ```
-devel-su rpm -U harbour-libre-monitor-1.0.0-1.aarch64.rpm
+devel-su rpm -U harbour-libre-monitor-1.0.1-1.aarch64.rpm
 ```
 
 To upgrade, install the new file the same way. Take a copy of the data folder first, with the monitoring service stopped, because a new version may convert the stored data to a format the older version cannot open. This applies in particular to a phone that still has a 0.1-x test package: the conversion at the first start of 1.0.0 is one-way. `docs/install.md` has the steps, including the way back.
@@ -153,6 +153,8 @@ Ideas for later versions, in no fixed order and without dates. They are not prom
 | "Waiting for your approval" | After a phone restart the app waits for you to allow access again; open the app and approve. |
 | The value is grey, "no reading since ..." | The source sent nothing for a while. The cause is written next to it. Nothing is lost: the missing stretch is filled in when the source delivers it. |
 | "Stopped for protection" with Retry and Re-enable | The app stopped a connection because the source behaved in an unexpected way. Press Retry; if it happens again the app offers to write a diagnostic report. |
+| "The source changed in a way this app does not understand" with Retry | The app could not understand the answers of the source several times in a row and stopped that connection. It tries again by itself once an hour and goes on as soon as it understands an answer; Retry tries at once. If it keeps coming back, the source may really have changed and the app needs an update: see "Reporting a problem". |
+| Version 1.0.0: monitoring stopped, "source reply not understood", and there is no Retry button | In 1.0.0 one unusable reply from the source can stop the connection until something clears it (fixed in 1.0.1, which retries by itself and has a Retry button). To clear it by hand, open the Terminal app and run `gdbus call --session --dest it.michelebrami.libre-monitor --object-path /it/michelebrami/libre_monitor --method it.michelebrami.libre_monitor.Service.Retry c1` (`c1` is the first connection; with more than one account, issue #2 on GitHub explains how to find the name of the stopped one; it prints `()` when done). Readings come back within a minute or two. |
 | No sound on an alarm | Check Do not disturb, the profile, and whether silent mode is set for the patient (a struck-through speaker). The banner and the Events entry always appear. |
 | The notification list shows "monitoring stopped" | Tap it to start the app again. |
 

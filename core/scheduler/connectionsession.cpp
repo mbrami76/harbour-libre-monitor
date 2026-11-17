@@ -206,6 +206,16 @@ void ConnectionSession::reapLinks()
 
 void ConnectionSession::run(const SessionRequest &request, const Done &done)
 {
+    runRequest(request, done, false);
+}
+
+void ConnectionSession::probe(const SessionRequest &request, const Done &done)
+{
+    runRequest(request, done, true);
+}
+
+void ConnectionSession::runRequest(const SessionRequest &request, const Done &done, bool probe)
+{
     m_request = request;
     m_done = done;
     m_hasRequest = true;
@@ -218,11 +228,15 @@ void ConnectionSession::run(const SessionRequest &request, const Done &done)
         return;
     }
     const AttentionState a = m_ports.state->attention(m_config.id);
-    if (a.active()) {
+    // A probe is only made for a stop by `protocol-changed`; any other attention still refuses.
+    const bool probeAllowed = probe && a.cause == StateCause::protocolChanged();
+    if (a.active() && !probeAllowed) {
         m_state = SessionState::Attention;
         fail(SessionResult::Attention, UtcTime(), a.detail, -1, a.cause);
         return;
     }
+    if (probeAllowed && m_state == SessionState::Attention)
+        m_state = SessionState::Closed;
     switch (m_state) {
     case SessionState::Ready:
         execute();
@@ -488,7 +502,7 @@ void ConnectionSession::onAuth(AuthMode mode, const CommandReport &report, const
         waitThen(now + m_s.authToFetchGapMs, [this]() { execute(); });
         return;
     }
-    onAuthError(mode, report.outcome);
+    onAuthError(mode, report.outcome, report.detail);
 }
 
 void ConnectionSession::renewalFailed()
@@ -506,7 +520,7 @@ void ConnectionSession::renewalFailed()
         m_listener->sessionRenewalRefused(m_config.id);
 }
 
-void ConnectionSession::onAuthError(AuthMode mode, const CommandOutcome &o)
+void ConnectionSession::onAuthError(AuthMode mode, const CommandOutcome &o, const QString &adapterDetail)
 {
     const qint64 now = nowMs();
     if (mode == Renew) {
@@ -572,8 +586,19 @@ void ConnectionSession::onAuthError(AuthMode mode, const CommandOutcome &o)
                  UtcTime(), QStringLiteral("killed by the guard during the login"));
             return;
         }
-        raiseAttention(StateCause::protocolChanged(), QStringLiteral("login reply not understood"));
-        fail(SessionResult::Attention, UtcTime(), QString(), -1, StateCause::protocolChanged());
+        // One login reply that is not understood does not stop the connection: the
+        // schedule counts it with the fetch replies and decides. The link is already retired,
+        // so the next try starts afresh; the minimum login gap still applies.
+        m_state = SessionState::Closed;
+        {
+            SessionResult r;
+            r.kind = SessionResult::Failed;
+            r.reason = SessionResult::ProtocolChanged;
+            r.detail = QStringLiteral("login reply not understood");
+            r.adapterDetail = adapterDetail;
+            r.adapterVersion = o.link.adapterVersion;
+            finish(r);
+        }
         return;
 
     case ErrorClass::InvalidCommand:
@@ -798,6 +823,13 @@ void ConnectionSession::userRetry()
         secretsAvailable();
         return;
     }
+    clearAttention();
+    if (m_state == SessionState::Attention)
+        m_state = SessionState::Closed;
+}
+
+void ConnectionSession::probeSucceeded()
+{
     clearAttention();
     if (m_state == SessionState::Attention)
         m_state = SessionState::Closed;

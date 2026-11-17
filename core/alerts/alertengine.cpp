@@ -237,7 +237,7 @@ void AlertEngine::fire(const QUuid &subject, SubjectState &s, AlertSlot slot, qi
         activate(subject, s, slot, sl.type, QStringLiteral("snooze-ended"), when, -1, out);
         break;
 
-    case AlertState::Acknowledged:  // LL or HH acknowledged, 15 minutes passed, condition holds
+    case AlertState::Acknowledged:  // LL or HH acknowledged, the re-alert time (5 minutes LL, 15 HH) passed, condition holds
         activate(subject, s, slot, sl.type, QStringLiteral("re-alerted"), when, -1, out);
         break;
 

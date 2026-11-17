@@ -382,6 +382,8 @@ private slots:
         QCOMPARE(compareAppVersions("1.0.0-1", "0.1-10"), 1);
         QCOMPARE(compareAppVersions("0.1-10", "1.0.0-1"), -1);
         QCOMPARE(compareAppVersions("1.0.0-1", "1.0.0-1"), 0);
+        QCOMPARE(compareAppVersions("1.0.1-1", "1.0.0-1"), 1);
+        QCOMPARE(compareAppVersions("1.0.0-1", "1.0.1-1"), -1);
         QCOMPARE(serviceVersionRelation(0, "1.0.0-1"), VersionRelation::Same);
         QCOMPARE(compareAppVersions("1.0", "0.9-9"), 1);
         QCOMPARE(compareAppVersions("0.1", "0.1-0"), 0);             // a missing part is 0

@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Michele Brami
 
-// The one binary of the application, in three modes (
-// REQ-ARC-07, REQ-ADP-15):
+// The one binary of the application, in four modes (REQ-ARC-07, REQ-ADP-15):
 //
 //   (no mode argument)        the user interface
 //   --service                 the headless monitoring service, started by D-Bus activation
@@ -68,10 +67,10 @@
 
 namespace {
 
-// What a release build shows until the real backend (the monitoring service over D-Bus and the
-// store reader) is written: no Subjects and a service that has not answered. It exists so the
-// pages run, honestly empty, in a build without the development flag; it is never a source of
-// readings. The scripted source (ui/fakebackend.h) is compiled only with `devsource`.
+// A backend with no Subjects and a service that has not answered: the smallest Backend, never a
+// source of readings. main() no longer uses it: every build without the scripted source
+// (ui/fakebackend.h, compiled only with `devsource`) runs on the real backend of app/real/ (the
+// monitoring service over D-Bus, the store reader). It is kept only as that minimal example.
 class EmptyBackend : public lm::ui::Backend
 {
 public:
@@ -83,10 +82,11 @@ public:
     void askAgain() {}
 };
 
-// The account page's backend in a build without the development flag, until the real one (the
-// service's login test over D-Bus, the secret store, the configuration file) is written: both
-// calls answer at once that the function is not available, so the page says so plainly instead of
-// pretending to work.
+// The account page's backend in a build that has neither the development flag nor the phone's ports
+// (LM_PHONE_PORTS: the Sailfish secret store and the D-Bus port to the service), for example a host
+// build: the real one (app/real/realaccountbackend.h) needs those ports. Both calls answer at once
+// that the function is not available, so the page says so plainly instead of pretending to work.
+// A package for the phone never uses it.
 class UnavailableAccountBackend : public lm::ui::AccountBackend
 {
 public:
@@ -181,8 +181,9 @@ int main(int argc, char *argv[])
     }
     const QLocale uiLocale = startLanguage.isEmpty() ? QLocale::system() : QLocale(startLanguage);
     // The data source. A development build (`devsource`) runs on scripted data with no service at
-    // all (REQ-SIM-06); every other build uses the real source: the monitoring service over D-Bus,
-    // The store read-only and the configuration file. There is no runtime switch between them.
+    // all (REQ-SIM-06) unless LM_DEV_SOURCE=service; every other build uses the real source: the
+    // monitoring service over D-Bus, the store read-only and the configuration file. There is no
+    // runtime switch in a release build.
     QObject *fake = 0;       // the scripted source, only in a development build
     lm::ui::Backend *backend = 0;
     lm::ui::AlertsBackend *alertsBackend = 0;
@@ -290,7 +291,7 @@ int main(int argc, char *argv[])
     // The diagnostic report dialog: the file goes to the Documents folder, the only use of the
     // permission `Documents` of the desktop file left (the packaging checks it). The developer's address
     // has one source for this dialog and About: the build define LM_DEVELOPER_CONTACT, which common.pri
-    // takes from the e-mail address of the spec's Packager line (done from 0.1-3). The
+    // takes from the e-mail address of the spec's Packager line. The
     // empty fallback below only serves a build without common.pri; the dialog and About then show no address.
 #ifndef LM_DEVELOPER_CONTACT
 #define LM_DEVELOPER_CONTACT ""
@@ -389,7 +390,7 @@ int main(int argc, char *argv[])
             again->refresh();
         });
         // The window's own version, compared with the service's Status().service.app_version: a service of
-        // another build (an upgrade left the old process running) is shown as "older" with what to do
+        // another build (an upgrade left the old process running) is shown as "older" with what to do.
         // The window never restarts it by itself.
         realBackend->setOwnVersion(QStringLiteral(LM_APP_VERSION));
         // Opening the UI starts the service (REQ-UI-11), loads the picture and asks for the alerts.

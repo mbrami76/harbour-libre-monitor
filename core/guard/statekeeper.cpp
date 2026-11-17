@@ -93,7 +93,7 @@ void StateKeeper::disableVersion(const QString &adapter, const QString &adapterV
 
 void StateKeeper::setAttention(const QString &connection, const QString &cause,
                                const QString &detail, const QString &adapter,
-                               const QString &adapterVersion)
+                               const QString &adapterVersion, const QString &adapterDetail)
 {
     StateEntry e;
     e.adapter = adapter;
@@ -103,6 +103,7 @@ void StateKeeper::setAttention(const QString &connection, const QString &cause,
     e.state = StateKind::attention();
     e.cause = cause;
     e.detail = detail;
+    e.adapterDetail = adapterDetail;
     record(e);
 }
 

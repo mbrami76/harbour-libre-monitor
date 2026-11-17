@@ -39,6 +39,9 @@ inline QString authFailed() { return QStringLiteral("auth-failed"); }
 inline QString authFailedSuspected() { return QStringLiteral("auth-failed-suspected"); }
 inline QString terms() { return QStringLiteral("terms"); }
 inline QString protocolChanged() { return QStringLiteral("protocol-changed"); }
+// A backoff cause, never persisted: a reply that was not understood but has not yet been seen
+// often enough to stop the connection.
+inline QString protocolSuspected() { return QStringLiteral("protocol-suspected"); }
 inline QString credentialsMissing() { return QStringLiteral("credentials-missing"); }
 inline QString adapterRejected() { return QStringLiteral("adapter-rejected"); }
 inline QString subjectUnavailable() { return QStringLiteral("subject-unavailable"); }
@@ -59,6 +62,10 @@ struct StateEntry
     QString cause;              // StateCause
     UtcTime until;              // hold only
     QString detail;             // no credentials, tokens, names or glucose values
+    // The adapter's own reason for an attention entry, reduced to a fixed text by the
+    // scheduler: a status number or a fixed phrase, never a value or a name. Empty
+    // when there is none.
+    QString adapterDetail;
 };
 
 class StateLog

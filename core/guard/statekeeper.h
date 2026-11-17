@@ -54,8 +54,10 @@ public:
                         const QString &detail);
     // `adapter` and `adapterVersion` record which version was running when the connection
     // needed attention, so that a later start with another version can try once more.
+    // `adapterDetail` is the adapter's reason as a fixed text, journaled as `adapter_detail`.
     void setAttention(const QString &connection, const QString &cause, const QString &detail,
-                      const QString &adapter = QString(), const QString &adapterVersion = QString());
+                      const QString &adapter = QString(), const QString &adapterVersion = QString(),
+                      const QString &adapterDetail = QString());
     void setHold(const QString &connection, const UtcTime &until, const QString &detail);
     // Ends the state of one connection (disabled, attention or hold), or of one version.
     void clearConnection(const QString &connection, const QString &detail);

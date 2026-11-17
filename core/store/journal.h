@@ -110,6 +110,9 @@ inline QString adapterVersion() { return QStringLiteral("adapter_version"); }
 inline QString state() { return QStringLiteral("state"); }              // disabled, attention, hold, clear
 inline QString until() { return QStringLiteral("until"); }              // UTC ISO time, hold only
 inline QString detail() { return QStringLiteral("detail"); }            // no credentials, tokens, names, values
+// The adapter's own reason for an attention entry: a fixed text chosen by the scheduler
+// from a closed list, or a status number; never a value, a name, a time stamp, a token or a body.
+inline QString adapterDetail() { return QStringLiteral("adapter_detail"); }
 }
 
 // Causes of a start entry (REQ-SCH-10).

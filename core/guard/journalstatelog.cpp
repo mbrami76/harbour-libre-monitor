@@ -21,6 +21,8 @@ bool JournalStateLog::append(const StateEntry &s)
         e.extra.insert(ConnectionStateKey::until(), s.until.toIso());
     if (!s.detail.isEmpty())
         e.extra.insert(ConnectionStateKey::detail(), s.detail);
+    if (!s.adapterDetail.isEmpty())
+        e.extra.insert(ConnectionStateKey::adapterDetail(), s.adapterDetail);
     return m_journal->append(e);
 }
 
@@ -42,6 +44,7 @@ QVector<StateEntry> JournalStateLog::load()
         s.state = e.extra.value(ConnectionStateKey::state()).toString();
         s.until = UtcTime::fromIso(e.extra.value(ConnectionStateKey::until()).toString());
         s.detail = e.extra.value(ConnectionStateKey::detail()).toString();
+        s.adapterDetail = e.extra.value(ConnectionStateKey::adapterDetail()).toString();
         out.append(s);
     }
     return out;

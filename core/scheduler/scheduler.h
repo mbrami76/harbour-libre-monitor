@@ -32,6 +32,15 @@ namespace lm {
 enum class ScheduleState { Idle, Fetching, Backoff, NeedsAttention, DisabledByGuard };
 QString scheduleStateName(ScheduleState state);
 
+// The adapter's own reason for a reply it could not understand, reduced to a text that may go
+// into the journal: the text must be one of the fixed phrases the adapter and the link
+// are known to use, an `HTTP` status of three digits, or the unusable-items phrase of one of the
+// three feeds. Anything else, however harmless it looks, becomes `reason not in the known list`:
+// the adapter is untrusted input and a free text could carry a name, a value, a time stamp or a
+// piece of a body. The link has already passed the text through its scrubber of known secrets;
+// this is the second, stricter step.
+QString adapterReasonForJournal(const QString &adapterText);
+
 enum Feed { FeedCurrent = 0, FeedGraph = 1, FeedLogbook = 2 };
 const int kFeedCount = 3;
 QString feedName(int feed);
@@ -175,7 +184,8 @@ private:
     struct Conn
     {
         Conn() : session(0), rateFloorMs(0), lastRateLimitMs(0), lastHoldMs(0), invalidN(0),
-                 inflight(0), newReading(false), lateRecords(0) {}
+                 protocolStreak(0), nextProbeMs(-1), inflight(0), newReading(false),
+                 lateRecords(0) {}
 
         ConnectionConfig cfg;
         ConnectionSession *session;
@@ -184,6 +194,13 @@ private:
         qint64 lastRateLimitMs;
         qint64 lastHoldMs;
         int invalidN;
+        // Consecutive polls of this connection whose reply was not understood. In memory
+        // only, like `rejectStreak`: a restart starts the count again, which can delay a stop but
+        // never cause one; the stop itself is persisted as the attention entry.
+        int protocolStreak;
+        // When the next probe of a connection stopped by `protocol-changed` is due, -1 = none.
+        // In memory: after a restart it is recomputed from the stop time (see start()).
+        qint64 nextProbeMs;
         QHash<QString, qint64> lastSuccessBySubject;
         // The command in flight.
         Subj *inflight;
@@ -238,11 +255,18 @@ private:
     void onConnFailed(Conn &c, Subj &s, const SessionResult &r, qint64 now);
     void onOutcomeOk(Conn &c, Subj &s, int feed, const SessionResult &r, qint64 now);
     void onOutcomeError(Conn &c, Subj &s, const SessionResult &r, qint64 now);
+    void protocolSeen(Conn &c, Subj &s, const QString &detail, const QString &adapterText,
+                      const QString &version, qint64 now);
+    bool protocolStopped(const Conn &c) const;
+    qint64 probeTimeAfter(const UtcTime &since, qint64 now) const;
+    void probeIfDue(Conn &c, qint64 now);
+    void onProbeResult(Conn *c, Subj *s, const SessionResult &r);
     void transientBackoff(Conn &c, Subj &s, int retryAfterS, qint64 notBeforeMs, const QString &cause,
                           qint64 now);
     void rateLimited(Conn &c, int retryAfterS, qint64 now);
     void attentionForConnection(Conn &c, const QString &cause, const QString &detail, bool persist,
-                                const QString &version = QString());
+                                const QString &version = QString(),
+                                const QString &adapterDetail = QString());
     void clearSubjectAttention(Subj &s);
     bool otherSubjectSucceededSince(const Conn &c, const Subj &s, qint64 sinceMs) const;
     void disableConnection(Conn &c, const QString &cause);
